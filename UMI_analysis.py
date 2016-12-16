@@ -159,13 +159,10 @@ print "  "+str(len(umi_reads))+" reads found"
 print "Step 2) Create Read Groups"
 
 umis=list(UMIRead.umi_list)
-print time.strftime("%d/%m/%Y:  %H:%M:%S  : Create key list")
 
-print time.strftime("%d/%m/%Y:  %H:%M:%S  : Create dict from key list")
 read_groups = dict.fromkeys(umis)
 read_groups.update(dict(read_groups))
 
-print time.strftime("%d/%m/%Y:  %H:%M:%S  : Sort reads to ReadGroups")
 for read in umi_reads.values():
     umi = read.getUMI()
     read_groups[umi]=UMIReadGroup(umi,read)
@@ -238,7 +235,7 @@ STATS.write("Read Groups median member count: "+str(np.median(read_group_members
 STATS.write("Read Groups minimum member count: "+str(np.amin(read_group_members))+"\n")
 STATS.write("Read Groups maximum member count: "+str(np.amax(read_group_members))+"\n")
 STATS.close()
-print str(len(read_groups))+" read groups found"
+print "  "+str(len(read_groups))+" read groups found"
 
 read_groups[read_groups.keys()[10]].printFASTA("test.fa")
 

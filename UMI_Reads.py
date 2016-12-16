@@ -95,6 +95,9 @@ class UMIReadGroup():
        FASTA.close()
 ######################################################################################
    def createConsensusR1(self,consensus_thresh):
+       if self.count == 1:
+           self.cons_sequence_r1 = self.read_list[0].getSequenceR1()
+           return
        consensus = ""
        for i in range (0,self.max_size_r1):
            bases_seen = list()
@@ -119,6 +122,9 @@ class UMIReadGroup():
        self.cons_sequence_r1 = consensus
 ######################################################################################
    def createConsensusR2(self,consensus_thresh):
+       if self.count == 1:
+           self.cons_sequence_r2 = self.read_list[0].getSequenceR2()
+           return
        consensus = ""
        for i in range (0,self.max_size_r2):
            bases_seen = list()
