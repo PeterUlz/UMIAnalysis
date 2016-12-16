@@ -7,9 +7,9 @@
 #  2) Reads from same read group are VERY similar
 #  3) InDel (errors) are very rare (InDels would lead to strand lagging in consensus building step)
 
-
+# version 0.2: Allow adaptor trimming (usnig cutadapt)
 # version 0.1: Initial set up
-version="0.1"
+version="0.2"
 import argparse
 import gzip
 import time
@@ -17,6 +17,7 @@ import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import sys
 from UMI_Reads import UMIRead
 from UMI_Reads import UMIReadGroup
 ###################################################################################
@@ -67,6 +68,16 @@ parser.add_argument('-t','--threads', dest='threads',
                    help='No. threads for alignment [default: 1]',type=int,default=1)
 parser.add_argument('-mutect','--mutect-regions', dest='target_regions',
                    help='BED file containing regions for SNP-calling with MuTect [default: ""]',default="")
+parser.add_argument('-adaptor1','--adaptor1', dest='adaptor1',
+                   help='Adaptor sequence to trim in collapsed reads [default: ""]',default="")
+parser.add_argument('-adaptor2','--adaptor2', dest='adaptor2',
+                   help='Adaptor sequence to trim in collapsed reads [default: ""]',default="")
+parser.add_argument('-cons_type','--consensus-type', dest='cons',
+                   help='Generate exact match consensus or Multiple Alignment (msa) [default: exact]',default="exact",choices=["exact","msa"])
+parser.add_argument('-skip_aln','--skip-aligment', dest='skip_aln',
+                   help='Stop analysis after Collapsed FastQ Generation',action="store_true")
+parser.add_argument('-skip_snp','--skip-snp-calling', dest='skip_snp',
+                   help='Stop analysis after Alignment',action="store_true")
 
 args = parser.parse_args()
 print time.strftime("%d/%m/%Y:  %H:%M:%S  : Starting Analysis")
@@ -86,7 +97,9 @@ filenames["Fastq1"]=args.fastq_file1
 filenames["Fastq2"]=args.fastq_file2
 filenames["CollapsedR1FastQ"]=proj_dir+"/"+args.name+".collapsedR1.fastq.gz"
 filenames["CollapsedR2FastQ"]=proj_dir+"/"+args.name+".collapsedR2.fastq.gz"
-filenames["ConcatenateFastQ"]=proj_dir+"/"+args.name+".extendedFrags.fastq"
+filenames["TrimCollapsedR1FastQ"]=proj_dir+"/"+args.name+".trimmed.collapsedR1.fastq.gz"
+filenames["TrimCollapsedR2FastQ"]=proj_dir+"/"+args.name+".trimmed.collapsedR2.fastq.gz"
+filenames["ConcatenateFastQ"]=proj_dir+"/"+args.name+".extendedFrags.fastq.gz"
 filenames["collapseSAM"]=proj_dir+"/"+args.name+".collapsed.sam"
 filenames["collapseBAM"]=proj_dir+"/"+args.name+".collapsed.bam"
 filenames["uncollapseSAM"]=proj_dir+"/"+args.name+".uncollapsed.sam"
@@ -144,16 +157,18 @@ print "  "+str(len(umi_reads))+" reads found"
 ####################################################################################################################
 # Step2 create Read groups
 print "Step 2) Create Read Groups"
-read_groups = dict()
-umis_seen = list()
-for read_name in umi_reads.keys():
-    read = umi_reads[read_name]
-    if read.getUMI() not in umis_seen:
-        read_group = UMIReadGroup(read.getUMI(),read)
-        read_groups[read.getUMI()] = read_group
-        umis_seen.append(read.getUMI())
-    else:
-        read_groups[read.getUMI()].addRead(read)
+
+umis=list(UMIRead.umi_list)
+print time.strftime("%d/%m/%Y:  %H:%M:%S  : Create key list")
+
+print time.strftime("%d/%m/%Y:  %H:%M:%S  : Create dict from key list")
+read_groups = dict.fromkeys(umis)
+read_groups.update(dict(read_groups))
+
+print time.strftime("%d/%m/%Y:  %H:%M:%S  : Sort reads to ReadGroups")
+for read in umi_reads.values():
+    umi = read.getUMI()
+    read_groups[umi]=UMIReadGroup(umi,read)
 
 ####################################################################################################################
 # Step3 Get ReadGroup Statistics
@@ -192,7 +207,7 @@ for key in read_groups.keys():
         read_group_over30mem += 1
     if count > 100:
         read_group_over100mem += 1
-    if count > args.member_threshold:
+    if count >= args.member_threshold:
         read_group_threshold += 1
 
 
@@ -220,8 +235,12 @@ STATS.write("Read Groups with >30 members: "+str(read_group_over30mem)+"\n")
 STATS.write("Read Groups with >100 members: "+str(read_group_5mem)+"\n")
 STATS.write("Read Groups mean member count: "+str(np.mean(read_group_members))+"\n")
 STATS.write("Read Groups median member count: "+str(np.median(read_group_members))+"\n")
+STATS.write("Read Groups minimum member count: "+str(np.amin(read_group_members))+"\n")
+STATS.write("Read Groups maximum member count: "+str(np.amax(read_group_members))+"\n")
 STATS.close()
 print str(len(read_groups))+" read groups found"
+
+read_groups[read_groups.keys()[10]].printFASTA("test.fa")
 
 ####################################################################################################################
 # Step4 Build Consensus Sequence of Read Group
@@ -254,12 +273,31 @@ with gzip.open(filenames["CollapsedR2FastQ"], 'wb') as f:
         f.write(line1+"\n"+line2+"\n"+line3+"\n"+line4+"\n")
 
 ####################################################################################################################
+# Trim adaptors if specified
+if args.adaptor1 != "":
+    if args.adaptor2 != "":
+        subprocess.call([script_dir+"/Software/cutadapt","-a",args.adaptor1,"-A",args.adaptor2,"-o",filenames["TrimCollapsedR1FastQ"],"-p",
+              filenames["TrimCollapsedR2FastQ"],filenames["CollapsedR1FastQ"],filenames["CollapsedR2FastQ"]])
+    else:
+        subprocess.call([script_dir+"/Software/cutadapt","-a",args.adaptor1,"-o",filenames["TrimCollapsedR1FastQ"],filenames["CollapsedR1FastQ"]])
+####################################################################################################################
 # Step6 Concatenate Forward and reverse reads using FLASH
 print "Step 6) Concatenate Forward and reverse reads using FLASH"
-subprocess.call([script_dir+"/Software/flash","-z","-M","160","-p","33","-x","0.5","-o",proj_dir+"/"+args.name,filenames["CollapsedR2FastQ"],filenames["CollapsedR2FastQ"]])
-
+if args.adaptor1 != "":
+    if args.adaptor2 != "":
+        subprocess.call([script_dir+"/Software/flash","-z","-M","160","-p","33","-x","0.5","-o",proj_dir+"/"+args.name,filenames["TrimCollapsedR1FastQ"],
+                filenames["TrimCollapsedR2FastQ"]])
+    else:
+        subprocess.call([script_dir+"/Software/flash","-z","-M","160","-p","33","-x","0.5","-o",proj_dir+"/"+args.name,filenames["TrimCollapsedR1FastQ"],
+                filenames["CollapsedR2FastQ"]])
+else:
+    subprocess.call([script_dir+"/Software/flash","-z","-M","160","-p","33","-x","0.5","-o",proj_dir+"/"+args.name,filenames["CollapsedR1FastQ"],
+                filenames["CollapsedR2FastQ"]])
 ####################################################################################################################
 # Step7 Align to Human Reference Genome
+if args.skip_aln:
+    print "Stop Analysis now"
+    sys.exit()
 print "Step 7) Alignment to Human Reference Genome"
 SAM = open(filenames["collapseSAM"],"w")
 subprocess.call([script_dir+"/Software/bwa","mem","-M","-R","@RG\tID:"+args.name+"\tSM:"+args.name+"\tPL:illumina","-t",str(args.threads),script_dir+"/Ref/hg19",filenames["ConcatenateFastQ"]],stdout=SAM)
@@ -290,6 +328,9 @@ BAMSTAT.close()
 
 ####################################################################################################################
 # Step9 SNP calling on collapsed BAM
+if args.skip_snp:
+    print "Stop Analysis now"
+    sys.exit()
 print "Step 9) SNP calling MuTect on collapsed BAM"
 if args.target_regions != "":
     subprocess.call(["java","-jar",script_dir+"/Software/GenomeAnalysisTK.jar","--analysis_type","MuTect2","--reference_sequence",

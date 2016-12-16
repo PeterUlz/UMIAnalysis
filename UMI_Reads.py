@@ -9,7 +9,8 @@ class UMIRead():
    umi1 = ""
    umi2 = ""
    combined_umi = ""
-   
+   umi_list = set()
+
    def createFromRead1(self,r1_name,r1_sequence,r1_quality,umi1_length,offset1):
        self.name = r1_name.rstrip()
        self.umi1 = r1_sequence[:umi1_length]
@@ -25,6 +26,7 @@ class UMIRead():
 
    def combineUMIs(self):
        self.combined_umi = self.umi1 + self.umi2
+       UMIRead.umi_list.add(self.combined_umi)
 
    def printReadSummary(self):
        print self.name+" "+self.sequence_r1
@@ -50,14 +52,12 @@ class UMIReadGroup():
    read_list = list()
    cons_sequence_r1 = ""
    cons_sequence_r2 = ""
-   umi = ""
    count = 0
    max_size_r1 = 0
    max_size_r2 = 0
 
    def __init__(self,umi_comb,read):
        self.name = umi_comb
-       self.umi = umi_comb
        self.read_list=list()
        self.read_list.append(read)
        self.count = 1
