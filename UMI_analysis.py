@@ -39,6 +39,12 @@ def saveSettings(args,filename):
    SETTINGS.write("  Threads: "+str(args.threads)+"\n")
    SETTINGS.write("  Sample name file: "+args.name+"\n")
    SETTINGS.write("  Output Directory: "+args.outdir+"\n")
+   if args.adaptor1 != "":
+       SETTINGS.write("  Adaptor1: "+args.adaptor1+"\n")
+   if args.adaptor2 != "":
+       SETTINGS.write("  Adaptor2: "+args.adaptor2+"\n")
+   if args.target_regions != "":
+       SETTINGS.write("  Target regions: "+args.target_regions+"\n")
    SETTINGS.close()
 
 ###################################################################################
@@ -165,7 +171,10 @@ read_groups.update(dict(read_groups))
 
 for read in umi_reads.values():
     umi = read.getUMI()
-    read_groups[umi]=UMIReadGroup(umi,read)
+    if read_groups[umi] == None:
+        read_groups[umi]=UMIReadGroup(umi,read)
+    else:
+        read_groups[umi].addRead(read)
 
 ####################################################################################################################
 # Step3 Get ReadGroup Statistics
@@ -254,7 +263,7 @@ with gzip.open(filenames["CollapsedR1FastQ"], 'wb') as f:
     for key in read_groups.keys():
         if read_groups[key].getCount < args.member_threshold:
             continue
-        line1=read_groups[key].getName()+"_"+str(read_groups[key].getCount())
+        line1="@"+read_groups[key].getName()+"_"+str(read_groups[key].getCount())
         line2=read_groups[key].getConsSequenceR1()
         line3="+"
         line4="I"*len(read_groups[key].getConsSequenceR1())
@@ -263,7 +272,7 @@ with gzip.open(filenames["CollapsedR2FastQ"], 'wb') as f:
     for key in read_groups.keys():
         if read_groups[key].getCount < args.member_threshold:
             continue
-        line1=read_groups[key].getName()+"_"+str(read_groups[key].getCount())
+        line1="@"+read_groups[key].getName()+"_"+str(read_groups[key].getCount())
         line2=read_groups[key].getConsSequenceR2()
         line3="+"
         line4="I"*len(read_groups[key].getConsSequenceR2())
@@ -272,6 +281,7 @@ with gzip.open(filenames["CollapsedR2FastQ"], 'wb') as f:
 ####################################################################################################################
 # Trim adaptors if specified
 if args.adaptor1 != "":
+    print "Trim Adaptors"
     if args.adaptor2 != "":
         subprocess.call([script_dir+"/Software/cutadapt","-a",args.adaptor1,"-A",args.adaptor2,"-o",filenames["TrimCollapsedR1FastQ"],"-p",
               filenames["TrimCollapsedR2FastQ"],filenames["CollapsedR1FastQ"],filenames["CollapsedR2FastQ"]])
