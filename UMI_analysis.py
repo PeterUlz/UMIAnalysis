@@ -7,9 +7,10 @@
 #  2) Reads from same read group are VERY similar
 #  3) InDel (errors) are very rare (InDels would lead to strand lagging in consensus building step)
 
-# version 0.2: Allow adaptor trimming (usnig cutadapt)
+# version 0.3: Allow UMI specification in extra file
+# version 0.2: Allow adaptor trimming (using cutadapt)
 # version 0.1: Initial set up
-version="0.2"
+version="0.3"
 import argparse
 import gzip
 import time
@@ -24,12 +25,37 @@ from UMI_Reads import UMIReadGroup
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 ###################################################################################
+def checkArgs(args):
+    if args.umi_file == "" and args.umi1 == 0:
+        print "Please specify either UMI file or length of UMI in Read 1"
+        sys.exit(1)
+    if args.umi_file != "" and args.umi1 != 0:
+        print "Please specify either UMI file or length of UMI in Read 1"
+        sys.exit()
+    if args.umi_file != "" and args.umi2 != 0:
+        print "Please specify either UMI file or length of UMI in Read 1"
+        sys.exit()
+###################################################################################
+def getUMIListFromFile(filename):
+    UMIS = gzip.open(filename)
+    umi_file_list = UMIS.readlines()
+    UMIS.close()
+    umi_list = list()
+    count = 0
+    for line in umi_file_list:
+        count += 1
+        if count % 4 == 2:
+            umi_list.append(line.rstrip())
+    return umi_list
+###################################################################################
 def saveSettings(args,filename):
    SETTINGS = open(filename,"w")
    SETTINGS.write(time.strftime("%d/%m/%Y:  %H:%M:%S  : Starting Analysis"))
    SETTINGS.write("  Version: "+version+"\n")
    SETTINGS.write("  Fastq file 1: "+args.fastq_file1+"\n")
    SETTINGS.write("  Fastq file 2: "+args.fastq_file2+"\n")
+   if args.umi_file != "":
+       SETTINGS.write("  UMI File: "+args.umi_file+"\n")
    SETTINGS.write("  Length UMI Read 1: "+str(args.umi1)+"\n")
    SETTINGS.write("  Length UMI Read 2: "+str(args.umi2)+"\n")
    SETTINGS.write("  Length Offset Read 1: "+str(args.off1)+"\n")
@@ -54,8 +80,10 @@ parser.add_argument('-fq1','--fastq1', dest='fastq_file1',
                    help='Fastq file R1',required=True)
 parser.add_argument('-fq2','--fastq2', dest='fastq_file2', 
                    help='Fastq file R2',required=True)
+parser.add_argument('-umi','--umi-file', dest='umi_file',
+                   help='Extra FastQ file specifying UMIs (in exact same order as R1 and R2 FastQ files)',default="")
 parser.add_argument('-umi1','--umi-read1', dest='umi1', 
-                   help='Length of UMI in Read 1 (starting from 5\' end)',required=True,type=int,default=6)
+                   help='Length of UMI in Read 1 (starting from 5\' end)',type=int,default=0)
 parser.add_argument('-umi2','--umi-read2', dest='umi2', 
                    help='Length of UMI in Read 2 (starting from 5\' end)',type=int,default=0)
 parser.add_argument('-off1','--offset1', dest='off1', 
@@ -86,6 +114,7 @@ parser.add_argument('-skip_snp','--skip-snp-calling', dest='skip_snp',
                    help='Stop analysis after Alignment',action="store_true")
 
 args = parser.parse_args()
+checkArgs(args)
 print time.strftime("%d/%m/%Y:  %H:%M:%S  : Starting Analysis")
 print "  Fastq file 1: ",args.fastq_file1
 print "  Fastq file 2: ",args.fastq_file2
@@ -101,6 +130,7 @@ filenames=dict()
 filenames["Settings"]=proj_dir+"/Umi_AnalysisSettings.txt"
 filenames["Fastq1"]=args.fastq_file1
 filenames["Fastq2"]=args.fastq_file2
+filenames["UMIFastQ"]=args.umi_file
 filenames["CollapsedR1FastQ"]=proj_dir+"/"+args.name+".collapsedR1.fastq.gz"
 filenames["CollapsedR2FastQ"]=proj_dir+"/"+args.name+".collapsedR2.fastq.gz"
 filenames["TrimCollapsedR1FastQ"]=proj_dir+"/"+args.name+".trimmed.collapsedR1.fastq.gz"
@@ -124,6 +154,8 @@ count = 0
 print "Step 1 a) Read FastQ1 file"
 with gzip.open(filenames["Fastq1"], 'r') as f:
     col_count = 0
+    if args.umi_file != "":
+        umi_list=getUMIListFromFile(filenames["UMIFastQ"])
     for line in f:
         if col_count % 4 == 0:
             line1 = line
@@ -135,7 +167,10 @@ with gzip.open(filenames["Fastq1"], 'r') as f:
             line4 = line
             count += 1
             read = UMIRead()
-            read.createFromRead1(line1[1:].split(" ")[0],line2,line4,args.umi1,args.off1)
+            if args.umi_file != "":
+                read.createFromRead1UMIFile(line1[1:].split(" ")[0],line2,line4,umi_list[count-1],args.off1)
+            else:
+                read.createFromRead1(line1[1:].split(" ")[0],line2,line4,args.umi1,args.off1)
             umi_reads[read.getName()] = read
         col_count += 1
 
@@ -245,8 +280,6 @@ STATS.write("Read Groups minimum member count: "+str(np.amin(read_group_members)
 STATS.write("Read Groups maximum member count: "+str(np.amax(read_group_members))+"\n")
 STATS.close()
 print "  "+str(len(read_groups))+" read groups found"
-
-read_groups[read_groups.keys()[10]].printFASTA("test.fa")
 
 ####################################################################################################################
 # Step4 Build Consensus Sequence of Read Group

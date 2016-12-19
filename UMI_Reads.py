@@ -17,6 +17,12 @@ class UMIRead():
        self.sequence_r1 = r1_sequence[(umi1_length+offset1):].rstrip()
        self.quality = r1_quality[(umi1_length+offset1):].rstrip()
 
+   def createFromRead1UMIFile(self,r1_name,r1_sequence,r1_quality,umi1_sequence,offset1):
+       self.name = r1_name.rstrip()
+       self.umi1 = umi1_sequence
+       self.sequence_r1 = r1_sequence[offset1:].rstrip()
+       self.quality = r1_quality[offset1:].rstrip()
+
 
    def createFromRead2(self,r2_name,r2_sequence,r2_quality,umi2_length,offset2):
        self.name = r2_name.rstrip()
